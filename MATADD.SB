@@ -1,0 +1,227 @@
+ECHO 0
+REM Simple Batch port of MATADD
+REM test case ExecuteSB matadd,AircraftDesigns/__new__.xml,5
+
+VAR %1, inPath
+VAR %2, matOffset
+
+VAR 0, readPos
+VAR 0, inPartsSection
+VAR 0, inMaterialsAttr
+VAR 0, partsElementMarker
+VAR 0, materialsMarker
+
+VAR inData
+VAR "", outData
+FREAD %inPath%, %&inData%
+
+VAR "", c
+VAR 0, cint
+
+REM additional registers
+VAR 0, x
+VAR 0, y
+VAR 0, z
+VAR 0, f1
+VAR 0, f2
+VAR 0, f3
+VAR 0, f4
+VAR 0, f5
+VAR 0, FuncReturnValue
+VAR "", FuncReturnPosition
+
+LOG "<!--Start of MATADD generated data-->"
+
+POS BEGIN_BEFORE_PARTS
+	IF %inPartsSection%
+		GOTO END_BEFORE_PARTS
+	ENDIF
+	
+	STRGET %inData%, %readPos%, %&cint%
+	CHAR %cint%, %&c%
+	
+	REM if (c == '<')
+	ISEQ %c%, "<"
+	IF
+		SET %readPos%, %&partsElementMarker%
+	ENDIF
+	
+	REM if (inStream.pos - partsElementMarker == 7 && inStream.str.Substring(partsElementMarker, 7) == "<Parts>")
+	SUB %readPos%, %partsElementMarker%
+	ISEQ %REGISTER%, 7, %&x%
+	SUBSTR %inData%, %partsElementMarker%, 7
+	ISEQ %REGISTER%, "<Parts>", %&y%
+	AND %x%, %y%
+	IF
+		SET 1, %&inPartsSection%
+	ENDIF
+	
+	ADD %readPos%, 1, %&readPos%
+	ADD %outData%, %c%, %&outData%
+	
+	REM if (c == LF)
+	ISEQ %cint%, 10
+	IF
+		LOG %outData%
+		SET "", %&outData%
+	ENDIF
+	
+	GOTO BEGIN_BEFORE_PARTS
+POS END_BEFORE_PARTS
+
+POS BEGIN_DURING_PARTS
+	NOT %inPartsSection%
+	IF
+		GOTO END_DURING_PARTS
+	ENDIF
+	
+	STRGET %inData%, %readPos%, %&cint%
+	CHAR %cint%, %&c%
+	
+	REM if (c == '<')
+	ISEQ %c%, "<"
+	IF
+		SET %readPos%, %&partsElementMarker%
+	ENDIF
+	
+	REM if (inStream.pos - partsElementMarker == 8 && inStream.str.Substring(partsElementMarker, 7) == "</Parts>")
+	SUB %readPos%, %partsElementMarker%
+	ISEQ %REGISTER%, 8, %&x%
+	SUBSTR %inData%, %partsElementMarker%, 8
+	ISEQ %REGISTER%, "</Parts>", %&y%
+	AND %x%, %y%
+	IF
+		SET 0, %&inPartsSection%
+	ENDIF
+	
+	REM if (c == 'm')
+	ISEQ %c%, "m"
+	IF
+		SET %readPos%, %&materialsMarker%
+	ENDIF
+	
+	REM if (inStream.pos - materialsMarker == 11 && inStream.str.Substring(materialsMarker, 11) == "materials=\"")
+	SUB %readPos%, %materialsMarker%
+	ISEQ %REGISTER%, 11, %&x%
+	SUBSTR %inData%, %materialsMarker%, 11
+	ISEQ %REGISTER%, "materials=\"", %&y%
+	AND %x%, %y%
+	IF
+		SET 1, %&inMaterialsAttr%
+	ENDIF
+	
+	NOT %inMaterialsAttr%
+	IF
+		GOTO AFTER_MATERIAL
+	ENDIF
+	
+	REM start handling material values
+	
+	REM if c is digit
+	SET %cint%, %&f2%
+	SET "AfterCheckDigit", %&FuncReturnPosition%
+	GOTO FUNC_ISDIGIT
+	POS AfterCheckDigit
+	IF %FuncReturnValue%
+		REM read int and add offset
+		SET "AfterReadDigits", %&FuncReturnPosition%
+		GOTO FUNC_READINT
+		POS AfterReadDigits
+		ADD %FuncReturnValue%, %matOffset%, %&z%
+		ADD %outData%, %z%, %&outData%
+		GOTO AFTER_MATERIAL
+	ENDIF
+	
+	REM if (c == '\"')
+	ISEQ %cint%, 34
+	IF
+		SET 0, %&inMaterialsAttr%
+		GOTO AFTER_MATERIAL
+	ENDIF
+	
+	REM if (c == '-')
+	ISEQ %cint%, 45
+	IF
+		REM write '-'
+		ADD %readPos%, 1, %&readPos%
+		ADD %outData%, %c%, %&outData%
+		
+		REM write material without changing
+		SET "AfterReadNegative", %&FuncReturnPosition%
+		GOTO FUNC_READINT
+		POS AfterReadNegative
+		ADD %outData%, %FuncReturnValue%, %&outData%
+		
+		GOTO AFTER_MATERIAL
+	ENDIF
+	
+	REM else
+	ADD %readPos%, 1, %&readPos%
+	ADD %outData%, %c%, %&outData%
+	
+	REM end handling material values
+	POS AFTER_MATERIAL
+	
+	NOT %inMaterialsAttr%
+	IF
+		ADD %readPos%, 1, %&readPos%
+		ADD %outData%, %c%, %&outData%
+	ENDIF
+	
+	REM if (c == LF)
+	ISEQ %cint%, 10, %&x%
+	NOT %inPartsSection%, %&y%
+	OR %x%, %y%
+	IF
+		LOG %outData%
+		SET "", %&outData%
+	ENDIF
+	
+	GOTO BEGIN_DURING_PARTS
+
+POS END_DURING_PARTS
+
+REM copy remaining chars
+STRLEN %inData%
+SUB %readPos%
+SUBSTR %inData%, %readPos%, %REGISTER%
+ADD "<!--Connections, paint theme, etc.-->\n", %REGISTER%
+LOG %REGISTER%
+LOG "<!--End of MATADD generated data (exit SP and copy from Player.log)-->"
+QUIT
+
+
+
+REM See if int is digit (returns 0 or 1)
+REM [argument] f2 is char as int
+POS FUNC_ISDIGIT
+ISGT %f2%, 47, %&f3%
+ISLT %f2%, 58, %&f4%
+AND %f3%, %f4%, %&FuncReturnValue%
+GOTO %FuncReturnPosition%
+
+
+
+REM Read integer value (returns int)
+REM [no argument]
+REM f1 is list of read chars as string
+REM f2 is peek char as string
+POS FUNC_READINT
+SET "", %&f1%
+
+POS FUNC_READINT_BEGIN_LOOP
+	STRGET %inData%, %readPos%, %&f2%
+	ISGT %f2%, 47, %&f3%
+	ISLT %f2%, 58, %&f4%
+	AND %f3%, %f4%
+	IF
+		REM is digit
+		CHAR %f2%, %&f5%
+		ADD %f1%, %f5%, %&f1%
+		ADD %readPos%, 1, %&readPos%
+		GOTO FUNC_READINT_BEGIN_LOOP
+	ENDIF
+	
+PARSE %f1%, %&f3%
+SET %f3%, %&FuncReturnValue%
+GOTO %FuncReturnPosition%
